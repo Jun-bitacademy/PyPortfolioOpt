@@ -15,7 +15,6 @@ df_krx = fdr.StockListing('KRX')
 
 # 데이터 파악
 # df_krx.info()
-
 # df_krx.isnull().sum() # 이거 안됨.
 
 # 결측치 제거
