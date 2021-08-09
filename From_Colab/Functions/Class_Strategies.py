@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import FinanceDataReader as fdr
 from pykrx import stock
+import pyfolio as pf
 import datetime
 import requests
 # from datetime import timedelta # 마이크로초 전, 마이크로초 후 를 구하고 싶다면 timedelta
@@ -21,12 +22,19 @@ kosdaq = stock.get_market_fundamental_by_ticker(today, market='KOSDAQ').index
 stocks = kospi.append(kosdaq)
 
 class Strategies:
-    def __init__(self, code_instance, stocks_1mo, stocks_3mos, code_updown, stocks_updown):
-        self.code_instance  = code_instance
-        self.stocks_1mo     = stocks_1mo
-        self.stocks_3mos    = stocks_3mos
-        self.code_updown    = code_updown
-        self.stocks_updown  = stocks_updown
+    def __init__(self, code_instance, stocks_1mo, stocks_3mos, code_updown, stocks_updown, indexName, start_date, bool_var,
+                 prices, lookback_period, n_selection):
+        self.code_instance   = code_instance
+        self.stocks_1mo      = stocks_1mo
+        self.stocks_3mos     = stocks_3mos
+        self.code_updown     = code_updown
+        self.stocks_updown   = stocks_updown
+        self.indexName       = indexName
+        self.start_date      = start_date
+        self.bool_var        = bool_var
+        self.prices          = prices
+        self.lookback_period = lookback_period
+        self.n_selection     = n_selection
 
 # ---------------------------------------------------------------------------------------- #
     # 급등주 함수
@@ -155,6 +163,60 @@ class Strategies:
         up_down_zero_df['상승 확률 높은 순위'] = up_down_zero_df['상승 확률'].rank(ascending=False)
         up_down_zero_df = up_down_zero_df.sort_values(by='상승 확률 높은 순위')
         return up_down_zero_df
+# ------------------------------- 듀얼 모멘텀 함수들 -----------------------------#
+    # 홀딩 리스트 가져오기
+    def getHoldingsList(indexName):
+        stocks = list(fdr.StockListing(indexName)['Symbol'] )# 나스닥
+        return stocks[:30] # 갯수 바꿀 수 있음!!
 
-if __name__ == "__main__":
-    strategies = Strategies()
+    # stock_dual = Strategies.getHoldingsList('KOSPI')
+
+    # 리스트를 데이터프레임으로 바꾸기
+    def getCloseDatafromList(stock_dual, start_date):
+        df = pd.DataFrame()
+        for s in Strategies.getHoldingsList('KOSPI'):
+            df[s] = fdr.DataReader(s, start_date)['Close']
+        return df
+
+    # prices = Strategies.getCloseDatafromList(stock_dual, '2021-01-01')
+
+    # 현재 듀얼 모멘텀으로 어떤 주식을 사야 하는지 리스트화
+    def bool_converter(bool_var):
+        """Returns Integer Value from Boolean Value
+        Parameters
+        ----------
+        bool_var : boolean
+            Boolean variables representing trade signals
+        Returns
+        -------
+        result : int
+            Integer variables representing trade signals
+        """
+        if bool_var == True:
+            result = 1
+        elif bool_var == False:
+            result = 0
+        return result
+
+
+    def DualMomentum(prices, lookback_period, n_selection):
+        # lookback_period: 몇개월 모멘텀 이용할건지
+        # n_selection: Top 몇개의 종목을 선택할건지(상대모멘텀)
+
+        # absolute momentum
+        returns = prices.pct_change(periods=lookback_period).fillna(0) # return 값이 true or false 로 나옴.
+        long_signal = (returns > 0).applymap(Strategies.bool_converter) # applymap :dataframe.applymap(func) 괄호 없애야 함.  # 리턴값이 양수가 맞으면 1로 바꿔라
+        abs_signal = long_signal[-1:]
+
+        # relative momentum
+        returns = prices.pct_change(periods=lookback_period).fillna(0)
+        rank = returns.rank(axis=1, ascending=False)
+        long_signal = (rank <= n_selection).applymap(Strategies.bool_converter)
+        rel_signal = long_signal[-1:]
+
+        signal = (abs_signal == rel_signal).applymap(Strategies.bool_converter) * abs_signal
+        dual_momentum_list = list(signal[signal == 1].dropna(axis=1).columns)
+        return dual_momentum_list
+
+# if __name__ == "__main__":
+#     strategies = Strategies()
